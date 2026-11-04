@@ -8,6 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Binatang">
+<link rel="preload" as="image" href="zaki.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -156,6 +157,39 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .hint { margin: 4px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--surface); border: 2px solid var(--line); color: var(--ink-soft); font-size: .9rem; font-weight: 700; }
 footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
 
+/* Layar loading: gambar bergoyang ke kiri dan kanan, tulisan Loading di bawahnya. */
+.loading {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
+  background: var(--bg); color: var(--ink);
+  padding-block: env(safe-area-inset-top, 0px) env(safe-area-inset-bottom, 0px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  transition: opacity .45s ease, visibility .45s ease;
+  /* Cadangan: bila skrip gagal berjalan, layar ini tetap menghilang sendiri. */
+  animation: loading-cadangan .01s 9s forwards;
+}
+.loading.selesai { opacity: 0; visibility: hidden; pointer-events: none; }
+.loading img {
+  display: block; width: min(46vw, 190px); height: auto;
+  transform-origin: 50% 92%;
+  filter: drop-shadow(0 10px 16px rgba(0, 0, 0, .22));
+  animation: goyang 1.6s ease-in-out infinite;
+}
+.loading p { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 1.7rem; letter-spacing: .08em; }
+.loading .titik span { display: inline-block; animation: kedip 1.2s ease-in-out infinite; }
+.loading .titik span:nth-child(2) { animation-delay: .2s; }
+.loading .titik span:nth-child(3) { animation-delay: .4s; }
+@keyframes goyang {
+  0%, 100% { transform: translateX(-38px) rotate(-8deg); }
+  50% { transform: translateX(38px) rotate(8deg); }
+}
+@keyframes goyang-halus {
+  0%, 100% { transform: translateX(-12px); }
+  50% { transform: translateX(12px); }
+}
+@keyframes kedip { 0%, 100% { opacity: .2; } 40% { opacity: 1; } }
+@keyframes loading-cadangan { to { opacity: 0; visibility: hidden; } }
 @keyframes pop { 0% { transform: scale(.8); } 55% { transform: scale(1.12) rotate(-4deg); } 100% { transform: scale(1); } }
 @keyframes geleng { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 @media (max-width: 520px) {
@@ -165,10 +199,18 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+  /* Layar loading tetap bergerak, tetapi lebih pelan dan sempit; cadangan penutupnya tetap jalan. */
+  .loading { animation: loading-cadangan .01s 9s forwards !important; }
+  .loading img { animation: goyang-halus 3s ease-in-out infinite !important; }
 }
 </style>
 </head>
 <body>
+
+<div class="loading" id="loading">
+  <img src="zaki.png" alt="" width="360" height="470" decoding="async">
+  <p role="status">Loading<span class="titik" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>
+</div>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="ikon-speaker" viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></symbol>
@@ -578,6 +620,22 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
   }
   $('#tab-belajar').addEventListener('click', function () { tampil('belajar'); });
   $('#tab-kuis').addEventListener('click', function () { tampil('kuis'); });
+
+  /* ---------- Layar loading ---------- */
+  // Tampil minimal 2,2 detik supaya terlihat, menunggu halaman selesai dimuat, dan paling lama 7 detik.
+  var loadingEl = $('#loading');
+  var mulaiLoading = Date.now();
+  function tutupLoading() {
+    if (!loadingEl || loadingEl.classList.contains('selesai')) return;
+    loadingEl.classList.add('selesai');
+    loadingEl.setAttribute('aria-hidden', 'true');
+    setTimeout(function () { if (loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl); }, 700);
+  }
+  function siapLoading() {
+    setTimeout(tutupLoading, Math.max(0, 2200 - (Date.now() - mulaiLoading)));
+  }
+  if (document.readyState === 'complete') siapLoading(); else window.addEventListener('load', siapLoading);
+  setTimeout(tutupLoading, 7000);
 
   /* ---------- Pasang sebagai aplikasi ---------- */
   var mandiri = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
