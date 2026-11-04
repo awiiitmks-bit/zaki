@@ -1,4 +1,3 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Kenali Binatang</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -133,6 +132,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .opt.ok .lbl { visibility: visible; }
 .opt.no { opacity: .45; animation: geleng .35s; }
 
+.hint { margin: 4px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--surface); border: 2px solid var(--line); color: var(--ink-soft); font-size: .9rem; font-weight: 700; }
 footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
 
 @keyframes pop { 0% { transform: scale(.8); } 55% { transform: scale(1.12) rotate(-4deg); } 100% { transform: scale(1); } }
@@ -172,6 +172,7 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
             <button class="btn primary" id="b-nama"><svg aria-hidden="true"><use href="#ikon-speaker"/></svg>Dengar nama</button>
             <button class="btn" id="b-suara"><svg aria-hidden="true"><use href="#ikon-speaker"/></svg>Dengar suara</button>
           </div>
+          <p class="hint" id="hint" hidden>Suara nama belum terbaca di perangkat ini. Pasang suara bahasa Indonesia di pengaturan perangkat, atau tambahkan rekaman nama di folder suara/ (contoh: nama-kucing.mp3).</p>
         </div>
       </div>
       <div class="grid" id="grid" style="margin-top:20px"></div>
@@ -190,7 +191,7 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
     </section>
   </main>
 
-  <footer>Nama binatang dibacakan dengan suara bahasa Indonesia bawaan perangkat. Suara binatang memakai rekaman asli dari folder suara/ bila ada; bila belum ada, dipakai suara tiruan buatan browser. Ketuk sekali dulu agar suara aktif.</footer>
+  <footer>Suara binatang memakai rekaman di folder suara/ bila ada, bila belum ada dipakai suara tiruan. Nama dibacakan dari rekaman nama bila ada, bila tidak dengan suara bahasa Indonesia bawaan perangkat. Ketuk sekali dulu agar suara aktif.</footer>
 </div>
 
 <script>
@@ -333,20 +334,27 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
   pickVoice();
   if (hasTTS && speechSynthesis.addEventListener) speechSynthesis.addEventListener('voiceschanged', pickVoice);
 
-  function say(text) {
+  // Jika suara bawaan perangkat tidak mau bicara, tandai agar tidak menahan aplikasi di setiap ketukan.
+  var ttsMati = false;
+  function say(text, paksa) {
     return new Promise(function (res) {
-      if (!hasTTS) return res();
-      var done = false;
-      function fin() { if (!done) { done = true; res(); } }
+      if (!hasTTS || (ttsMati && !paksa)) return res();
+      var selesai = false, mulai = false;
+      function fin() { if (!selesai) { selesai = true; res(); } }
       try {
-        speechSynthesis.cancel();
+        pickVoice();
         var u = new SpeechSynthesisUtterance(text);
         u.lang = 'id-ID';
         if (idVoice) u.voice = idVoice;
         u.rate = 0.8; u.pitch = 1.15;
+        u.onstart = function () { mulai = true; ttsMati = false; var h = $('#hint'); if (h) h.hidden = true; };
         u.onend = fin; u.onerror = fin;
-        setTimeout(fin, 3500);
-        speechSynthesis.speak(u);
+        setTimeout(function () {
+          if (!mulai) { ttsMati = true; var h = $('#hint'); if (h) h.hidden = false; fin(); }
+        }, 1200);
+        setTimeout(fin, 4500);
+        var jalan = function () { speechSynthesis.speak(u); };
+        if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(jalan, 80); } else { jalan(); }
       } catch (e) { fin(); }
     });
   }
@@ -375,29 +383,66 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
   var current = ANIMALS[0];
 
   // Memakai rekaman asli di folder suara/ (kucing.mp3, anjing.mp3, dst.). Jika file belum ada, memakai suara tiruan.
-  var tidakAda = {};
+  // Semua rekaman dimuat lebih dulu saat halaman dibuka, jadi suara langsung berbunyi saat gambar diketuk.
+  // Rekaman suara binatang: suara/<id>.mp3. Rekaman nama (opsional): suara/nama-<id>.mp3.
+  var tidakAda = {}, tidakAdaNama = {}, pool = {}, namaPool = {};
+  function muat(src, tandai) {
+    var el = new Audio();
+    el.preload = 'auto';
+    el.addEventListener('error', tandai);
+    el.src = src;
+    try { el.load(); } catch (e) { /* abaikan */ }
+    return el;
+  }
+  ANIMALS.forEach(function (a) {
+    pool[a.id] = muat(a.rekaman || ('suara/' + a.id + '.mp3'), function () { tidakAda[a.id] = true; });
+    namaPool[a.id] = muat('suara/nama-' + a.id + '.mp3', function () { tidakAdaNama[a.id] = true; });
+  });
+  function berhenti() {
+    [pool, namaPool].forEach(function (p) {
+      Object.keys(p).forEach(function (k) { try { p[k].pause(); } catch (e) { /* abaikan */ } });
+    });
+    if (hasTTS) { try { speechSynthesis.cancel(); } catch (e) { /* abaikan */ } }
+  }
+  // Memutar satu rekaman dari awal; janji selesai saat rekaman habis. Jika gagal, jalankan cadangan.
+  function mainkan(el, cadangan) {
+    return new Promise(function (res) {
+      var selesai = false;
+      function fin() { if (!selesai) { selesai = true; res(); } }
+      el.onended = fin;
+      try { el.pause(); el.currentTime = 0; } catch (e) { /* abaikan */ }
+      var p = el.play();
+      if (p && p.catch) {
+        p.catch(function (err) {
+          if (selesai) return;
+          selesai = true;
+          if (err && err.name === 'AbortError') return res();
+          Promise.resolve(cadangan(err)).then(res);
+        });
+      }
+      setTimeout(fin, 6000);
+    });
+  }
   function tiruan(a) {
-    if (!audio()) return 0;
-    return SUARA[a.id]();
+    if (!audio()) return Promise.resolve();
+    var d = SUARA[a.id]();
+    return wait(d * 1000 + 100);
   }
   function bunyi(a) {
-    if (tidakAda[a.id]) return tiruan(a);
-    try {
-      var el = new Audio(a.rekaman || ('suara/' + a.id + '.mp3'));
-      var cadangan = false;
-      var pakaiTiruan = function () {
-        if (cadangan) return;
-        cadangan = true; tidakAda[a.id] = true;
-        tiruan(a);
-      };
-      el.addEventListener('error', pakaiTiruan);
-      var p = el.play();
-      if (p && p.catch) p.catch(pakaiTiruan);
-      setTimeout(function () { try { el.pause(); } catch (e) { /* abaikan */ } }, 5000);
-    } catch (e) {
-      tiruan(a);
-    }
-    return 1.5;
+    var el = pool[a.id];
+    if (!el || tidakAda[a.id]) return tiruan(a);
+    return mainkan(el, function (err) {
+      if (err && err.name === 'NotSupportedError') tidakAda[a.id] = true;
+      return tiruan(a);
+    });
+  }
+  function ucapkanNama(a, paksa) {
+    var el = namaPool[a.id];
+    if (!el || tidakAdaNama[a.id]) return say(a.nama, paksa);
+    return mainkan(el, function (err) {
+      if (err && err.name === 'NotSupportedError') tidakAdaNama[a.id] = true;
+      return say(a.nama, paksa);
+    });
   }
 
   /* ---------- Mode Belajar ---------- */
@@ -417,13 +462,14 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
   }
   async function perkenalkan(a) {
     audio();
+    berhenti();
     var my = ++seq;
     setStage(a);
-    await say(a.nama);
+    await bunyi(a);                 // suara binatang langsung berbunyi
     if (my !== seq) return;
-    await wait(150);
+    await wait(100);
     if (my !== seq) return;
-    bunyi(a);
+    await ucapkanNama(a);           // lalu nama dibacakan
   }
 
   var grid = $('#grid');
@@ -438,8 +484,8 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
     b.addEventListener('click', function () { perkenalkan(a); });
     grid.appendChild(b);
   });
-  $('#b-nama').addEventListener('click', function () { audio(); seq++; say(current.nama); });
-  $('#b-suara').addEventListener('click', function () { seq++; bunyi(current); });
+  $('#b-nama').addEventListener('click', function () { audio(); berhenti(); seq++; ucapkanNama(current, true); });
+  $('#b-suara').addEventListener('click', function () { audio(); berhenti(); seq++; bunyi(current); });
   setStage(current);
 
   /* ---------- Mode Tebak Suara ---------- */
@@ -475,12 +521,11 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
       $('#bintang').textContent = quiz.stars;
       el.classList.add('ok');
       var my = ++seq;
+      berhenti();
       await say('Benar! Itu ' + a.nama);
       if (my !== seq) return;
-      await wait(300);
-      if (my !== seq) return;
-      bunyi(a);
-      await wait(1500);
+      await bunyi(a);
+      await wait(700);
       if (my !== seq) return;
       ronde();
     } else {
@@ -489,12 +534,12 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
       say('Coba lagi');
     }
   }
-  $('#b-putar').addEventListener('click', function () { audio(); if (quiz.target) bunyi(quiz.target); });
+  $('#b-putar').addEventListener('click', function () { audio(); berhenti(); if (quiz.target) bunyi(quiz.target); });
 
   /* ---------- Pindah mode ---------- */
   function tampil(mode) {
     seq++;
-    if (hasTTS) { try { speechSynthesis.cancel(); } catch (e) { /* abaikan */ } }
+    berhenti();
     var kuis = mode === 'kuis';
     $('#belajar').hidden = kuis;
     $('#kuis').hidden = !kuis;
@@ -506,5 +551,3 @@ footer { color: var(--ink-soft); font-size: .88rem; max-width: 62ch; }
   $('#tab-kuis').addEventListener('click', function () { tampil('kuis'); });
 })();
 </script>
-
-</body></html>
