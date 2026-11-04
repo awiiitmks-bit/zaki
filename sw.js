@@ -1,6 +1,6 @@
 // Service worker Kenali Binatang: membuat aplikasi bisa dibuka tanpa internet.
 // Jika mengganti rekaman suara, naikkan angka versi supaya perangkat mengambil file yang baru.
-var VERSI = 'kenali-binatang-v1';
+var VERSI = 'kenali-binatang-v2';
 var INTI = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 var ID = ['kucing', 'anjing', 'sapi', 'ayam', 'bebek', 'kambing', 'kuda', 'singa', 'gajah', 'katak', 'babi', 'burung'];
 
@@ -9,7 +9,7 @@ self.addEventListener('install', function (event) {
     caches.open(VERSI).then(function (cache) {
       return cache.addAll(INTI).then(function () {
         // Rekaman disimpan satu per satu; file yang tidak ada dilewati tanpa membatalkan pemasangan.
-        var daftar = [];
+        var daftar = ['zaki.png'];
         ID.forEach(function (id) {
           daftar.push('suara/' + id + '.mp3', 'suara/nama-' + id + '.mp3');
         });
